@@ -8,6 +8,10 @@
 https://cdn.jsdelivr.net/gh/tang5011235/PicBed@main/img/2026/11/20261120-153012-9f3c2a1b.png
 ```
 
+## 样例
+
+![PicBed 样例](https://cdn.jsdelivr.net/gh/tang5011235/PicBed@main/img/2026/11/picbed-demo.png)
+
 ## 目录规范
 
 ```
