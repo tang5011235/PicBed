@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+# pic — 把本地图片放进 GitHub 图床仓库，并打印 jsDelivr 直链
+#
+#   仓库: ~/development/picbed  (git@github.com:tang5011235/PicBed.git)
+#   链接: https://cdn.jsdelivr.net/gh/tang5011235/PicBed@main/img/YYYY/MM/<name>
+set -euo pipefail
+
+REPO_DIR="${PICBED_DIR:-$HOME/development/picbed}"
+URL_BASE="${PICBED_URL:-https://cdn.jsdelivr.net/gh/tang5011235/PicBed@main}"
+URL_BASE="${URL_BASE%/}"
+MAX_BYTES=$((20 * 1024 * 1024))
+WARN_BYTES=$((5 * 1024 * 1024))
+
+md=0
+sha_link=0
+dry=0
+do_push=1
+opt_name=""
+opt_subdir=""
+files=()
+
+die() { printf 'pic: %s\n' "$*" >&2; exit 1; }
+info() { printf '%s\n' "$*" >&2; }
+
+usage() {
+  cat >&2 <<'USAGE'
+pic — 上传图片到 GitHub 图床，输出 jsDelivr 直链
+
+用法:
+  pic [选项] <图片>...
+
+选项:
+  --md           输出 Markdown ![](url)
+  --sha          同时输出钉住当前 commit 的链接（新文件即时可见，用于排查缓存）
+  --name NAME    指定文件名（仅单文件；不含扩展名时沿用原扩展名）
+  --dir DIR      仓库内子目录（默认 img/YYYY/MM）
+  --no-push      只本地提交，不推送
+  --dry-run      只打印计划，不动文件
+  -h, --help     显示帮助
+
+环境变量:
+  PICBED_DIR     图床仓库路径，默认 ~/development/picbed
+  PICBED_URL     链接前缀，默认 https://cdn.jsdelivr.net/gh/tang5011235/PicBed@main
+USAGE
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --md) md=1 ;;
+    --sha) sha_link=1 ;;
+    --no-push) do_push=0 ;;
+    --dry-run) dry=1 ;;
+    --name) [ $# -ge 2 ] || die "--name 需要一个值"; opt_name="$2"; shift ;;
+    --dir) [ $# -ge 2 ] || die "--dir 需要一个值"; opt_subdir="$2"; shift ;;
+    -h|--help) usage; exit 0 ;;
+    --) shift; while [ $# -gt 0 ]; do files+=("$1"); shift; done; break ;;
+    -*) die "未知选项: $1" ;;
+    *) files+=("$1") ;;
+  esac
+  shift
+done
+
+[ ${#files[@]} -gt 0 ] || { usage; exit 2; }
+[ -d "$REPO_DIR/.git" ] || die "找不到图床仓库: $REPO_DIR"
+if [ ${#files[@]} -gt 1 ] && [ -n "$opt_name" ]; then
+  die "--name 只能用于单个文件"
+fi
+
+if [ -n "$opt_subdir" ]; then
+  subdir="${opt_subdir#/}"
+  subdir="${subdir%/}"
+else
+  subdir="img/$(date +%Y/%m)"
+fi
+
+stamp="$(date +%Y%m%d-%H%M%S)"
+rand="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
+
+human_mb() { awk -v b="$1" 'BEGIN { printf "%.1f", b / 1048576 }'; }
+
+rel_paths=()
+for src in "${files[@]}"; do
+  [ -f "$src" ] || die "不是文件: $src"
+  size="$(stat -c '%s' -- "$src")"
+  if [ "$size" -gt "$MAX_BYTES" ]; then
+    die "$src 有 $(human_mb "$size") MB，超过 jsDelivr 单文件上限 20 MB"
+  fi
+
+  base="${src##*/}"
+  ext=""
+  case "$base" in
+    *.*) ext="$(printf '%s' "${base##*.}" | tr 'A-Z' 'a-z')" ;;
+  esac
+
+  if [ -n "$opt_name" ]; then
+    name="$opt_name"
+    case "$name" in
+      *.*) ;;
+      *) [ -z "$ext" ] || name="$name.$ext" ;;
+    esac
+  else
+    name="$stamp-$rand"
+    [ -z "$ext" ] || name="$name.$ext"
+  fi
+  name="$(printf '%s' "$name" | tr ' ' '-' | tr -d '/')"
+
+  if [ -n "$ext" ]; then
+    stem="${name%.*}"
+    sfx=".${name##*.}"
+  else
+    stem="$name"
+    sfx=""
+  fi
+  dest_rel="$subdir/$stem$sfx"
+  n=2
+  while [ -e "$REPO_DIR/$dest_rel" ]; do
+    dest_rel="$subdir/$stem-$n$sfx"
+    n=$((n + 1))
+  done
+
+  if [ "$dry" -eq 1 ]; then
+    info "计划: $src -> $dest_rel"
+  else
+    mkdir -p "$REPO_DIR/$subdir"
+    cp -- "$src" "$REPO_DIR/$dest_rel"
+    info "已放入: $dest_rel  ($(human_mb "$size") MB)"
+    if [ "$size" -gt "$WARN_BYTES" ]; then
+      info "提示: 该图 $(human_mb "$size") MB，网页加载会偏慢，可先压缩"
+    fi
+  fi
+  rel_paths+=("$dest_rel")
+done
+
+if [ "$dry" -eq 1 ]; then
+  for p in "${rel_paths[@]}"; do printf '%s/%s\n' "$URL_BASE" "$p"; done
+  exit 0
+fi
+
+git -C "$REPO_DIR" add -- "${rel_paths[@]}"
+if git -C "$REPO_DIR" diff --cached --quiet; then
+  info "没有需要提交的改动"
+else
+  git -C "$REPO_DIR" commit -q -m "pic: add ${#rel_paths[@]} image(s) $(date '+%Y-%m-%d %H:%M')"
+fi
+
+if [ "$do_push" -eq 1 ]; then
+  if ! git -C "$REPO_DIR" push -q origin HEAD; then
+    info "推送被拒，先 rebase 再重试"
+    git -C "$REPO_DIR" pull -q --rebase --autostash
+    git -C "$REPO_DIR" push -q origin HEAD
+  fi
+  info "已推送: $(git -C "$REPO_DIR" log --oneline -1)"
+fi
+
+sha="$(git -C "$REPO_DIR" rev-parse --short=12 HEAD)"
+for p in "${rel_paths[@]}"; do
+  url="$URL_BASE/$p"
+  if [ "$md" -eq 1 ]; then
+    printf '![](%s)\n' "$url"
+  else
+    printf '%s\n' "$url"
+  fi
+  if [ "$sha_link" -eq 1 ]; then
+    printf '%s\n' "${URL_BASE%@*}@$sha/$p"
+  fi
+done
