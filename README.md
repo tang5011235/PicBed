@@ -37,6 +37,24 @@ pic --dry-run *.png           # 只看计划
 ln -sf ~/development/picbed/tools/pic ~/.local/bin/pic
 ```
 
+## 桌面版 PicGo（图形界面）
+
+已装官方 PicGo 3.0.4 AppImage：
+
+- 程序：`~/Applications/picgo/PicGo-3.0.4-x86_64.AppImage`
+- 菜单：启动器搜 `PicGo`（对应 `~/.local/share/applications/picgo.desktop`）
+- 配置：`~/.config/picgo/data.json`（GitHub 上传器 + `customUrl` 指向 jsDelivr 前缀）
+- 上传落点：`img/原文件名`（PicGo 的“路径”只做字面前缀，不认 `{year}` 占位符）
+- 快捷键：`Ctrl+Shift+U` 剪贴板快速上传；上传成功后自动把链接复制到剪贴板
+- 内置 Server：`127.0.0.1:36677`，`POST /upload` 可被脚本调用
+
+两个入口共用同一仓库，路径风格不同：
+
+| 入口 | 落点 |
+| --- | --- |
+| `pic` | `img/YYYY/MM/<时间戳>-<8位hex>.<ext>` |
+| PicGo | `img/<原文件名>` |
+
 ## 限制与已知行为
 
 - 仓库必须**公开**：jsDelivr 只能读公开仓库，私有图只能自己看，走不了这条 CDN。
