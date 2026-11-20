@@ -74,7 +74,7 @@ else
 fi
 
 stamp="$(date +%Y%m%d-%H%M%S)"
-rand="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
+new_rand() { od -An -tx1 -N4 /dev/urandom | tr -d ' \n'; }
 
 human_mb() { awk -v b="$1" 'BEGIN { printf "%.1f", b / 1048576 }'; }
 
@@ -99,7 +99,7 @@ for src in "${files[@]}"; do
       *) [ -z "$ext" ] || name="$name.$ext" ;;
     esac
   else
-    name="$stamp-$rand"
+    name="$stamp-$(new_rand)"
     [ -z "$ext" ] || name="$name.$ext"
   fi
   name="$(printf '%s' "$name" | tr ' ' '-' | tr -d '/')"
